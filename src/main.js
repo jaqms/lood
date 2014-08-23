@@ -29,6 +29,7 @@ var events = {
 
 function create() {
 	game.world.setBounds(0, 0, STAGE_WIDTH, STAGE_HEIGHT);
+	game.physics.startSystem(Phaser.Physics.ARCADE);
 	
 	//Objects
 	map = game.add.tilemap('level1');
@@ -37,13 +38,13 @@ function create() {
 	layer2 = map.createLayer('Level1-2');
 	layer1 = map.createLayer('Level1-1');
 	mainLayer = map.createBlankLayer("Main", STAGE_TILE_WIDTH, STAGE_TILE_HEIGHT, TILE_WIDTH, TILE_HEIGHT);
-
 	var layer1Tiles = map.copy(0, 0, STAGE_TILE_WIDTH, STAGE_TILE_HEIGHT, layer1);
 	map.paste(0, 0, layer1Tiles, mainLayer);
 	map.setLayer(mainLayer);
+	map.setCollisionBetween(2, 3);
 
 	vectorLayer = game.add.graphics(0, 0);
-	vectorLayer.fixedToCamera = true;
+	//vectorLayer.fixedToCamera = true;
 	
 	player = new Player();
 	portal = new Portal(layer2);
@@ -51,10 +52,15 @@ function create() {
 	player.init();
 	portal.init();
 
+	//Physics
+	game.physics.arcade.gravity.y = 250;
+
 	game.camera.follow(player.obj);
 }
 
 function update() {
+	game.physics.arcade.collide(player.obj, mainLayer);
+	
 	//Update
 	player.update();
 	portal.update();
@@ -88,7 +94,7 @@ function render() {
 	//game.debug.geom(portal.obj, '#ff00ff');
 	//game.debug.geom(portal.lastPos, '#00ff00');
 	game.debug.text((portal.obj.x) + ", " + (portal.obj.y) + " - " + (portal.lastPos.x) + ", " + (portal.lastPos.y), 12, 12);
-	game.debug.text(portal.obj.centerX + ", " + portal.obj.centerY, 12, 36);
+	game.debug.bodyInfo(player.obj, 12, 36);
 	game.debug.text(game.camera.x + ", " + game.camera.y, 12, 54);
 }
 
@@ -97,6 +103,7 @@ function render() {
 function Portal (layer) {
 	this.obj = new Phaser.Rectangle(0, 0, 320, 256);
 	this.lastPos = new Phaser.Rectangle(0, 0, 320, 256);
+	this.clickStartPos = new Phaser.Point(0, 0);
 
 	this.layer = layer;
 	this.showTiles = [];
@@ -111,6 +118,7 @@ Portal.prototype.init = function () {
 	this.lastPos.y = this.obj.y;
 
 	this.state['moved'] = false;
+	this.state['dragging'] = false;
 }
 
 Portal.prototype.getTiles = function () {
@@ -121,8 +129,8 @@ Portal.prototype.refreshTiles = function () {
 	//this.tiles = this.layer.getTiles(game.camera.x + this.obj.x, game.camera.y + this.obj.y, this.obj.width - 32, this.obj.height - 32);
 
 	//For smooth movement
-	this.showTiles = this.layer.getTiles(game.camera.x + this.obj.x, game.camera.y + this.obj.y, this.obj.width, this.obj.height);
-	this.hideTiles = layer1.getTiles(game.camera.x + this.lastPos.x, game.camera.y + this.lastPos.y, this.obj.width, this.obj.height);
+	this.showTiles = this.layer.getTiles(this.obj.x, this.obj.y, this.obj.width - 32, this.obj.height - 32);
+	this.hideTiles = layer1.getTiles(this.lastPos.x, this.lastPos.y, this.obj.width - 32, this.obj.height - 32);
 	//var dirtyX = this.obj.x > this.lastPos.x ? new Phaser.Rectangle(this.lastPos.left, this.lastPos.top, this.obj.left - this.lastPos.left, this.lastPos.height) : new Phaser.Rectangle(this.obj.right, this.lastPos.top, this.obj.x - this.lastPos.x, this.lastPos.height);
 	//var dirtyY = this.obj.y > this.lastPos.y ? new Phaser;
 	//var dirtyXY;
@@ -131,60 +139,65 @@ Portal.prototype.refreshTiles = function () {
 Portal.prototype.update = function () {
 	this.state['moved'] = false;
 
-	var dx = game.input.x - this.lastPos.centerX;
-	var dy = game.input.y - this.lastPos.centerY;
-	
-	//Mouse move
-	if (Math.abs(dx) >= 32) {
-		if (dx >= 32)
-			this.obj.centerX = game.input.x - (game.input.x % 32);
-		else
-			this.obj.centerX = game.input.x + 32 - (game.input.x % 32);
-		this.state['moved'] = true;
+	if (game.input.mousePointer.isDown) {
+		if (!this.state['dragging']) {
+			this.state['dragging'] = true;
+			this.clickStartPos.setTo(game.input.worldX, game.input.worldY);
+		}
+		
+		var touchInside = Phaser.Rectangle.contains(this.obj, game.input.worldX, game.input.worldY);
+
+		if (touchInside) {
+			var dx = game.input.worldX - this.clickStartPos.x;
+			var dy = game.input.worldY - this.clickStartPos.y;
+			
+			if (Math.abs(dx) >= 32) {
+				if (dx >= 32)
+					this.obj.x += game.math.snapTo(dx, 32);
+				else
+					this.obj.x += game.math.snapTo(dx, 32);
+				this.state['moved'] = true;
+			}
+			if (Math.abs(dy) >= 32) {
+				if (dy >= 32)
+					this.obj.y += game.math.snapTo(dy, 32);
+				else
+					this.obj.y += game.math.snapTo(dy, 32);
+				this.state['moved'] = true;
+			}
+		}
+		else {
+			var dx = game.input.worldX - this.lastPos.centerX;
+			var dy = game.input.worldY - this.lastPos.centerY;
+			
+			if (Math.abs(dx) >= 32) {
+				if (dx >= 32) {
+					this.obj.centerX = game.input.worldX - (game.input.worldX % 32);
+				}
+				else {
+					this.obj.centerX = game.input.worldX + 32 - (game.input.worldX % 32);
+				}
+				this.state['moved'] = true;
+			}
+			if (Math.abs(dy) >= 32) {
+				if (dy >= 32) {
+					this.obj.centerY = game.input.worldY - (game.input.worldY % 32);
+				}
+				else {
+					this.obj.centerY = game.input.worldY + 32 - (game.input.worldY % 32);
+				}
+				this.state['moved'] = true;
+			}
+		}
 	}
-	if (Math.abs(dy) >= 32) {
-		if (dy >= 32)
-			this.obj.centerY = game.input.y - (game.input.y % 32);
-		else
-			this.obj.centerY = game.input.y + 32 - (game.input.y % 32);
-		this.state['moved'] = true;
+	else if (game.input.mousePointer.isUp) {
+		this.state['dragging'] = false;
 	}
 
 	if (this.state['moved']) {
+		this.state['dragging'] = false;
 		this.refreshTiles();
 	}
-	//this.obj.centerX = game.input.x;
-	//this.obj.centerY = game.input.y;
-
-	//Camera move
-	/*var worldDx = game.camera.x + this.obj.x - this.lastWorldPos.x;
-	var worldDy = game.camera.y + this.obj.y - this.lastWorldPos.y;
-	if (Math.abs(worldDx) > 32 || Math.abs(worldDy) > 32) {
-		this.obj.centerX = worldDx > 32 ? this.obj.centerX - (this.obj.centerX % 32) : this.obj.centerX + 32 - (this.obj.centerX % 32);
-		this.obj.centerY = worldDy > 32 ? this.obj.centerY - (this.obj.centerY % 32) : this.obj.centerY + 32 - (this.obj.centerY % 32);
-		this.state['moved'] = true;
-	}*/
-
-	/*var cameraDx = game.camera.x - (this.lastWorldPos.x - this.obj.x);
-	var cameraDy = game.camera.y - (this.lastWorldPos.y - this.obj.y);
-
-	if (Math.abs(cameraDx) > 32) {
-		if (cameraDx >= 32)
-			this.obj.x = this.obj.x - (this.obj.x % 32);
-		else
-			this.obj.x = this.obj.x + 32 - (this.obj.x % 32);
-
-		this.state['moved'] = true;
-	}
-
-	if (game.camera.y + this.obj.y % 32 !== 0) {
-		if (this.obj.y % 32 <= 16)
-			this.obj.y = this.obj.y - (this.obj.y % 32);
-		else
-			this.obj.y = this.obj.y + 32 - (this.obj.y % 32);
-
-		this.state['moved'] = true;
-	}*/
 }
 
 Portal.prototype.postUpdate = function () {
@@ -210,23 +223,39 @@ function Player () {
 }
 
 Player.prototype.init = function () {
-	this.obj.x = 64;
-	this.obj.y = 1888;
+	this.obj.x = 608;
+	this.obj.y = 1824;
 	this.lastPos.x = this.obj.x;
 	this.lastPos.y = this.obj.y;
 	this.state['moved'] = false;
+
+	game.physics.enable(this.obj, Phaser.Physics.ARCADE);
+	this.obj.body.setSize(24, 32);
+	this.obj.body.collideWithWorldBounds = true;
+	this.obj.body.bounce.y = 0.2;
+	this.obj.body.bounce.x = 0.0;
+	this.obj.body.linearDamping = 1;
 }
 
 Player.prototype.update = function () {
 	this.state['moved'] = false;
 
+	this.obj.body.velocity.x = 0;
+
 	if (game.input.keyboard.isDown(68)) {
-		this.obj.x += 8;
+		this.obj.body.velocity.x = 200;
 		this.state['moved'] = true;
 	}
 	else if (game.input.keyboard.isDown(65)) {
-		this.obj.x -= 8;
+		this.obj.body.velocity.x = -200;
 		this.state['moved'] = true;
+	}
+
+	if (game.input.keyboard.isDown(87)) {
+		if (this.obj.body.onFloor()) {
+			this.obj.body.velocity.y = -200;
+			this.state['moved'] = true;
+		}
 	}
 }
 
