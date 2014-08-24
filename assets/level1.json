@@ -104,19 +104,6 @@
                  "width":32,
                  "x":160,
                  "y":1696
-                }, 
-                {
-                 "height":128,
-                 "name":"ladder",
-                 "properties":
-                    {
-
-                    },
-                 "type":"",
-                 "visible":true,
-                 "width":32,
-                 "x":320,
-                 "y":1792
                 }],
          "opacity":1,
          "type":"objectgroup",

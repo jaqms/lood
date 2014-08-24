@@ -6,6 +6,8 @@ function preload() {
     game.load.spritesheet('spritesheet', 'assets/spritesheet.png', 32, 32);
     game.load.image('tileset', 'assets/tileset.png');
     game.load.image('player', 'assets/player.png');
+    game.load.image('fg_background', 'assets/fg_background.jpg');
+    game.load.image('bg_background', 'assets/bg_background.jpg');
 }
 
 var STAGE_WIDTH = 2048;
@@ -24,6 +26,9 @@ var ladders;
 var platforms;
 var spikes;
 var hooks;
+var visibleAreas;
+var fgBackground;
+var bgBackground;
 
 var events = {
 	PORTAL_MOVED: new Phaser.Signal()
@@ -33,41 +38,36 @@ function create() {
 	game.world.setBounds(0, 0, STAGE_WIDTH, STAGE_HEIGHT);
 	game.physics.startSystem(Phaser.Physics.ARCADE);
 	
+	//Create
 	map = game.add.tilemap();
-
+	levelManager = new LevelManager();
+	vectorLayer = game.add.graphics(0, 0);
+	fgBackground = game.add.sprite(0, 0, 'fg_background');
+	fgBackground.scale.setTo(4, 4);
+	bgBackground = game.add.sprite(0, 0, 'bg_background');
+	bgBackground.scale.setTo(4, 4);
+	
 	ladders = game.add.group();
 	platforms = game.add.group();
 	spikes = game.add.group();
 	hooks = game.add.group();
-	
-	//Objects
-	levelManager = new LevelManager();
-	levelManager.loadLevel('level1', 'Level1-1', 'Level1-2', 'Objects1-1', 'Objects1-2')
-	
-	vectorLayer = game.add.graphics(0, 0);
-
+	visibleAreas = game.add.group();
 	player = new Player();
 	portal = new Portal();
 
+	game.world.bringToTop(map);
 	game.world.bringToTop(ladders);
 	game.world.bringToTop(platforms);
 	game.world.bringToTop(spikes);
 	game.world.bringToTop(hooks);
-	game.world.bringToTop(player);
-	game.world.bringToTop(portal);
+	game.world.bringToTop(vectorLayer);
+	game.world.bringToTop(player.obj);
 
-	player.init();
-	portal.init(levelManager.bgLayer, levelManager.fgLayer);
 
-	//Physics
-	game.physics.arcade.gravity.y = 400;
-
-	game.camera.follow(player.obj);
+	startLevel1();
 }
 
 function update() {
-	handleInteraction();
-	
 	//Update
 	levelManager.updateObjects();
 	player.update();
@@ -78,15 +78,9 @@ function update() {
 	player.postUpdate();
 	portal.postUpdate();
 
-	if (portal.state['moved'])
+	if (portal.state['moved']) {
 		putPortalTiles();
-}
-
-function handleInteraction() {
-	game.physics.arcade.collide(player.obj, levelManager.mainLayer);
-	game.physics.arcade.collide(player.obj, platforms, function (player, platform) {
-		player.body.velocity.x += platform.body.velocity.x;
-	});
+	}
 }
 
 function putPortalTiles() {
@@ -120,6 +114,26 @@ function render() {
 	//game.debug.text(game.camera.x + ", " + game.camera.y, 12, 54);
 }
 
+function startLevel1() {
+	levelManager.unloadLevel();
+	ladders.removeAll(true);
+	platforms.removeAll(true);
+	spikes.removeAll(true);
+	hooks.removeAll(true);
+	visibleAreas.removeAll(true);
+
+	//Init
+	bgBackground.mask = vectorLayer;
+	bgBackground.opacity = 0.5;
+	levelManager.loadLevel('level1', 'Level1-1', 'Level1-2', 'Objects1-1', 'Objects1-2')
+	player.init();
+	portal.init(levelManager.bgLayer, levelManager.fgLayer);
+
+	//Physics
+	game.physics.arcade.gravity.y = 400;
+	game.camera.follow(player.obj);
+}
+
 //-------------------------------------------------------------------------------------------------------------------
 
 function LevelManager() {
@@ -130,12 +144,22 @@ function LevelManager() {
 	this.bgObjects = [];
 }
 
+LevelManager.prototype.unloadLevel = function () {
+	if (this.mainLayer) {
+		this.fgLayer.destroy();
+		this.bgLayer.destroy();
+		this.mainLayer.destroy();
+	}
+	map.destroy();
+}
+
 LevelManager.prototype.loadLevel = function (asset, fgLayerName, bgLayerName, fgObjectsName, bgObjectsName) {
-	map.removeAllLayers();
 	map = game.add.tilemap(asset);
 	map.addTilesetImage('tileset', 'tileset', TILE_WIDTH, TILE_HEIGHT);
 	this.fgLayer = map.createLayer(fgLayerName);
 	this.bgLayer = map.createLayer(bgLayerName);
+	this.fgLayer.visible = false;
+	this.bgLayer.visible = false;
 	this.mainLayer = map.createBlankLayer("Main", STAGE_TILE_WIDTH, STAGE_TILE_HEIGHT, TILE_WIDTH, TILE_HEIGHT);
 	var fgLayerTiles = map.copy(0, 0, STAGE_TILE_WIDTH, STAGE_TILE_HEIGHT, this.fgLayer);
 	map.paste(0, 0, fgLayerTiles, this.mainLayer);
@@ -314,7 +338,7 @@ Portal.prototype.postUpdate = function () {
 
 Portal.prototype.draw = function (graphics) {
 	graphics.lineStyle(2, 0xff0000, 1.0);
-	graphics.beginFill(0xff0000, 0.25);
+	graphics.beginFill(0xff0000, 0.0);
 	graphics.drawRect(this.obj.left, this.obj.top, this.obj.width, this.obj.height);
 	graphics.endFill();
 }
@@ -335,6 +359,7 @@ Player.prototype.init = function () {
 	this.lastPos.x = this.obj.x;
 	this.lastPos.y = this.obj.y;
 	this.state['moved'] = false;
+	this.state['direction'] = 'right';
 
 	this.obj.body.setSize(24, 32);
 	this.obj.body.collideWithWorldBounds = true;
@@ -347,27 +372,45 @@ Player.prototype.update = function () {
 	this.state['moved'] = false;
 	this.state['on_ladder'] = false;
 
-	this.obj.body.velocity.x = 0;
+	this.handleInteraction();
 
+	this.obj.body.velocity.x = 0;
+	
 	if (game.input.keyboard.isDown(68)) {
 		this.obj.body.velocity.x = 200;
+		this.state['direction'] = 'right';
 		this.state['moved'] = true;
 	}
 	else if (game.input.keyboard.isDown(65)) {
 		this.obj.body.velocity.x = -200;
+		this.state['direction'] = 'left';
 		this.state['moved'] = true;
 	}
 
 	if (game.input.keyboard.isDown(87)) {
-		if (this.obj.body.onFloor()) {
+		if (this.obj.body.velocity.y === 0) {
 			this.obj.body.velocity.y = -200;
 			this.state['moved'] = true;
 		}
 	}
 
+	if (!this.obj.body.onFloor()) {
+		this.state['moved'] = true;
+	}
+}
+
+Player.prototype.handleInteraction = function () {
+	game.physics.arcade.collide(player.obj, levelManager.mainLayer);
+
+	game.physics.arcade.collide(player.obj, platforms, function (player, platform) {
+		player.body.velocity.x = platform.body.velocity.x;
+		this.state['moved'] = true;
+	}.bind(this));
+	
 	game.physics.arcade.overlap(this.obj, ladders, function (player, ladder) {
 		if (game.input.keyboard.isDown(87)) {
 			player.body.velocity.y = -100;
+			this.state['moved'] = true;
 		}
 		else {
 			player.body.velocity.y = 0;
@@ -375,6 +418,10 @@ Player.prototype.update = function () {
 		}
 		this.state['on_ladder'] = true;
 	}.bind(this));
+
+	game.physics.arcade.overlap(this.obj, hooks, function (player, hook) {
+
+	}.bind(this))
 }
 
 Player.prototype.postUpdate = function () {
@@ -392,7 +439,7 @@ Player.prototype.postUpdate = function () {
 
 function Ladder(th, layer) {
 	this.obj = game.add.tileSprite(0, 0, TILE_WIDTH, th * TILE_HEIGHT, 'spritesheet', 0, ladders);
-	this.visibleArea = game.add.graphics(0, 0);
+	this.visibleArea = game.add.graphics(0, 0, visibleAreas);
 	this.bounds = new Phaser.Rectangle(0, 0, this.obj.width, this.obj.height);
 	this.layer = layer;
 	this.state = {};
@@ -477,7 +524,7 @@ Ladder.prototype.updateVisibility = function (objBounds, portalBounds) {
 function Platform(platformLength, layer) {
 	this.obj = game.add.sprite(0, 0, null, null, platforms);
 	game.physics.enable(this.obj, Phaser.Physics.ARCADE);
-	this.visibleArea = game.add.graphics(0, 0);
+	this.visibleArea = game.add.graphics(0, 0, visibleAreas);
 	this.bounds = new Phaser.Rectangle(0, 0, platformLength * TILE_WIDTH, TILE_HEIGHT);
 	this.moveBounds = new Phaser.Rectangle(0, 0, 0, TILE_HEIGHT);
 	this.layer = layer;
@@ -602,7 +649,7 @@ Platform.prototype.updateVisibility = function (objBounds, portalBounds) {
 
 function Spikes(tw, layer) {
 	this.obj = game.add.tileSprite(0, 0, tw * TILE_WIDTH, TILE_HEIGHT, 'spritesheet', 5, spikes);
-	this.visibleArea = game.add.graphics(0, 0);
+	this.visibleArea = game.add.graphics(0, 0, visibleAreas);
 	this.bounds = new Phaser.Rectangle(0, 0, this.obj.width, this.obj.height);
 	this.layer = layer;
 	this.state = {};
@@ -686,7 +733,7 @@ Spikes.prototype.updateVisibility = function (objBounds, portalBounds) {
 
 function Hook(layer) {
 	this.obj = game.add.sprite(0, 0, 'spritesheet', 6, hooks);
-	this.visibleArea = game.add.graphics(0, 0);
+	this.visibleArea = game.add.graphics(0, 0, visibleAreas);
 	this.bounds = new Phaser.Rectangle(0, 0, this.obj.width, this.obj.height);
 	this.layer = layer;
 	this.state = {};
@@ -694,7 +741,7 @@ function Hook(layer) {
 	this.key = null;
 
 	game.physics.enable(this.obj, Phaser.Physics.ARCADE);
-	this.obj.body.setSize(this.obj.width, this.obj.height);
+	this.obj.body.setSize(this.obj.width + 32, this.obj.height, -16, 0);
 	this.obj.body.allowGravity = false;
 }
 
@@ -715,6 +762,15 @@ Hook.prototype.postUpdate = function () {
 	if (portal.state['moved']) {
 		this.updateVisibility(this.bounds, portal.bounds);
 	}
+	
+	if (player.state['moved']) {
+		if (game.physics.arcade.intersects(this.obj.body, player.obj.body)) {
+			this.obj.frame = 7;
+		}
+		else {
+			this.obj.frame = 6;
+		}
+	}
 }
 
 Hook.prototype.updateVisibility = function (objBounds, portalBounds) {
@@ -724,7 +780,7 @@ Hook.prototype.updateVisibility = function (objBounds, portalBounds) {
 	if (this.layer === levelManager.bgLayer) {
 		if (!intersectRect.empty) {
 			this.visibleArea.drawRect(objBounds.left, objBounds.top, objBounds.width, objBounds.height);
-			this.obj.body.setSize(objBounds.width, objBounds.height, 0, 0);
+			this.obj.body.setSize(objBounds.width + 32, objBounds.height, -16, 0);
 		}
 		else {
 			this.visibleArea.drawRect(0, 0, 0, 0);
@@ -738,7 +794,7 @@ Hook.prototype.updateVisibility = function (objBounds, portalBounds) {
 		}
 		else {
 			this.visibleArea.drawRect(objBounds.left, objBounds.top, objBounds.width, objBounds.height);
-			this.obj.body.setSize(objBounds.width, objBounds.height, 0, 0);
+			this.obj.body.setSize(objBounds.width + 32, objBounds.height, -16, 0);
 		}
 	}
 
