@@ -57,7 +57,7 @@ function create() {
 	game.world.bringToTop(portal);
 
 	player.init();
-	portal.init();
+	portal.init(levelManager.bgLayer, levelManager.fgLayer);
 
 	//Physics
 	game.physics.arcade.gravity.y = 400;
@@ -90,19 +90,19 @@ function handleInteraction() {
 }
 
 function putPortalTiles() {
-	var layer1Tile;
-	var layer2Tile;
+	var fgLayerTile;
+	var bgLayerTile;
 	
 	for (var i = 0; i < portal.hideTiles.length; i++) {
-		layer1Tile = map.getTile(portal.hideTiles[i].x, portal.hideTiles[i].y, levelManager.layer1);
-		if (map.getTile(portal.hideTiles[i].x, portal.hideTiles[i].y, levelManager.mainLayer).index !== layer1Tile.index)
-			map.putTile(layer1Tile, layer1Tile.x, layer1Tile.y, levelManager.mainLayer, false, true);
+		fgLayerTile = map.getTile(portal.hideTiles[i].x, portal.hideTiles[i].y, levelManager.fgLayer);
+		if (map.getTile(portal.hideTiles[i].x, portal.hideTiles[i].y, levelManager.mainLayer).index !== fgLayerTile.index)
+			map.putTile(fgLayerTile, fgLayerTile.x, fgLayerTile.y, levelManager.mainLayer, false, true);
 	}
 
 	for (var i = 0; i < portal.showTiles.length; i++) {
-		layer2Tile = map.getTile(portal.showTiles[i].x, portal.showTiles[i].y, levelManager.layer2);
-		if (map.getTile(portal.showTiles[i].x, portal.showTiles[i].y, levelManager.mainLayer).index !== layer2Tile.index)
-			map.putTile(layer2Tile, layer2Tile.x, layer2Tile.y, levelManager.mainLayer, false, true);
+		bgLayerTile = map.getTile(portal.showTiles[i].x, portal.showTiles[i].y, levelManager.bgLayer);
+		if (map.getTile(portal.showTiles[i].x, portal.showTiles[i].y, levelManager.mainLayer).index !== bgLayerTile.index)
+			map.putTile(bgLayerTile, bgLayerTile.x, bgLayerTile.y, levelManager.mainLayer, false, true);
 	}
 }
 
@@ -124,52 +124,48 @@ function render() {
 
 function LevelManager() {
 	this.mainLayer = null;
-	this.layer1 = null;
-	this.layer2 = null;
-	this.objects1 = [];
-	this.objects2 = [];
+	this.fgLayer = null;
+	this.bgLayer = null;
+	this.fgObjects = [];
+	this.bgObjects = [];
 }
 
-LevelManager.prototype.loadLevel = function (asset, layer1Name, layer2Name, objects1Name, objects2Name) {
+LevelManager.prototype.loadLevel = function (asset, fgLayerName, bgLayerName, fgObjectsName, bgObjectsName) {
 	map.removeAllLayers();
 	map = game.add.tilemap(asset);
 	map.addTilesetImage('tileset', 'tileset', TILE_WIDTH, TILE_HEIGHT);
-	this.layer1 = map.createLayer(layer1Name);
-	this.layer2 = map.createLayer(layer2Name);
+	this.fgLayer = map.createLayer(fgLayerName);
+	this.bgLayer = map.createLayer(bgLayerName);
 	this.mainLayer = map.createBlankLayer("Main", STAGE_TILE_WIDTH, STAGE_TILE_HEIGHT, TILE_WIDTH, TILE_HEIGHT);
-	var layer1Tiles = map.copy(0, 0, STAGE_TILE_WIDTH, STAGE_TILE_HEIGHT, this.layer1);
-	map.paste(0, 0, layer1Tiles, this.mainLayer);
+	var fgLayerTiles = map.copy(0, 0, STAGE_TILE_WIDTH, STAGE_TILE_HEIGHT, this.fgLayer);
+	map.paste(0, 0, fgLayerTiles, this.mainLayer);
 	map.setLayer(this.mainLayer);
 	map.setCollisionBetween(2, 3);
 
-	this.objects1 = this.loadObjects(map.objects[objects1Name]);
-	this.objects2 = this.loadObjects(map.objects[objects2Name]);
+	this.fgObjects = this.loadObjects(map.objects[fgObjectsName], this.fgLayer);
+	this.bgObjects = this.loadObjects(map.objects[bgObjectsName], this.bgLayer);
 }
 
-LevelManager.prototype.loadObjects = function (json) {
+LevelManager.prototype.loadObjects = function (json, layer) {
 	var objects = [];
 	for (var i = 0; i < json.length; i++) {
 		var object;
 		switch (json[i].name) {
 			case "ladder":
-				object = new Ladder(json[i].height / TILE_HEIGHT);
+				object = new Ladder(json[i].height / TILE_HEIGHT, layer);
 				object.init(json[i].x / TILE_WIDTH, json[i].y / TILE_HEIGHT);
-				//ladders.add(object.obj);
 				break;
 			case "platform":
-				object = new Platform(parseInt(json[i].properties.length));
+				object = new Platform(parseInt(json[i].properties.length), layer);
 				object.init(json[i].x / TILE_WIDTH, json[i].y / TILE_HEIGHT, json[i].width / TILE_WIDTH, parseInt(json[i].properties.start), json[i].properties.direction, parseInt(json[i].properties.speed));
-				//platforms.add(object.obj);
 				break;
 			case "spikes":
-				object = new Spikes(json[i].width / TILE_WIDTH);
+				object = new Spikes(json[i].width / TILE_WIDTH, layer);
 				object.init(json[i].x / TILE_WIDTH, json[i].y / TILE_HEIGHT);
-				//spikes.add(object.obj);
 				break;
 			case "hook":
-				object = new Hook();
+				object = new Hook(layer);
 				object.init(json[i].x / TILE_WIDTH, json[i].y / TILE_HEIGHT, json[i].properties.key);
-				//hooks.add(object.obj);
 				break;
 		}
 
@@ -182,22 +178,22 @@ LevelManager.prototype.loadObjects = function (json) {
 }
 
 LevelManager.prototype.updateObjects = function () {
-	for (var i = 0; i < this.objects1.length; i++) {
-		this.objects1[i].update();
+	for (var i = 0; i < this.fgObjects.length; i++) {
+		this.fgObjects[i].update();
 	}
 
-	for (var i = 0; i < this.objects2.length; i++) {
-		this.objects2[i].update();
+	for (var i = 0; i < this.bgObjects.length; i++) {
+		this.bgObjects[i].update();
 	}
 }
 
 LevelManager.prototype.postUpdateObjects = function () {
-	for (var i = 0; i < this.objects1.length; i++) {
-		this.objects1[i].postUpdate();
+	for (var i = 0; i < this.fgObjects.length; i++) {
+		this.fgObjects[i].postUpdate();
 	}
 
-	for (var i = 0; i < this.objects2.length; i++) {
-		this.objects2[i].postUpdate();
+	for (var i = 0; i < this.bgObjects.length; i++) {
+		this.bgObjects[i].postUpdate();
 	}
 }
 
@@ -205,19 +201,26 @@ LevelManager.prototype.postUpdateObjects = function () {
 
 function Portal () {
 	this.obj = new Phaser.Rectangle(0, 0, 320, 256);
+	this.bounds = this.obj;
 	this.lastPos = new Phaser.Rectangle(0, 0, 320, 256);
 	this.clickStartPos = new Phaser.Point(0, 0);
+	this.showLayer = null;
+	this.hideLayer = null;
 
 	this.showTiles = [];
 	this.hideTiles = [];
 	this.state = {};
 }
 
-Portal.prototype.init = function () {
+Portal.prototype.init = function (showLayer, hideLayer) {
 	this.obj.x = 0;
 	this.obj.y = 0;
 	this.lastPos.x = this.obj.x;
 	this.lastPos.y = this.obj.y;
+	this.showLayer = showLayer;
+	this.hideLayer = hideLayer;
+	this.showTiles = [];
+	this.hideTiles = [];
 
 	this.state['moved'] = false;
 	this.state['dragging'] = false;
@@ -231,8 +234,8 @@ Portal.prototype.refreshTiles = function () {
 	//this.tiles = this.layer.getTiles(game.camera.x + this.obj.x, game.camera.y + this.obj.y, this.obj.width - 32, this.obj.height - 32);
 
 	//For smooth movement
-	this.showTiles = levelManager.layer2.getTiles(this.obj.x, this.obj.y, this.obj.width - 32, this.obj.height - 32);
-	this.hideTiles = levelManager.layer1.getTiles(this.lastPos.x, this.lastPos.y, this.obj.width - 32, this.obj.height - 32);
+	this.showTiles = this.showLayer.getTiles(this.obj.x, this.obj.y, this.obj.width - 32, this.obj.height - 32);
+	this.hideTiles = this.hideLayer.getTiles(this.lastPos.x, this.lastPos.y, this.obj.width - 32, this.obj.height - 32);
 	//var dirtyX = this.obj.x > this.lastPos.x ? new Phaser.Rectangle(this.lastPos.left, this.lastPos.top, this.obj.left - this.lastPos.left, this.lastPos.height) : new Phaser.Rectangle(this.obj.right, this.lastPos.top, this.obj.x - this.lastPos.x, this.lastPos.height);
 	//var dirtyY = this.obj.y > this.lastPos.y ? new Phaser;
 	//var dirtyXY;
@@ -387,33 +390,97 @@ Player.prototype.postUpdate = function () {
 
 //-------------------------------------------------------------------------------------------------------------------
 
-function Ladder(th) {
+function Ladder(th, layer) {
 	this.obj = game.add.tileSprite(0, 0, TILE_WIDTH, th * TILE_HEIGHT, 'spritesheet', 0, ladders);
-	this.lastPos = new Phaser.Point(0, 0);
+	this.visibleArea = game.add.graphics(0, 0);
+	this.bounds = new Phaser.Rectangle(0, 0, this.obj.width, this.obj.height);
+	this.layer = layer;
 	this.state = {};
 
 	game.physics.enable(this.obj, Phaser.Physics.ARCADE);
+	this.obj.body.setSize(18, th * TILE_HEIGHT, 8, 0);
 	this.obj.body.allowGravity = false;
 }
 
 Ladder.prototype.init = function (tx, ty) {
 	this.obj.x = tx * TILE_WIDTH;
 	this.obj.y = ty * TILE_HEIGHT;
+	this.bounds.x = this.obj.x;
+	this.bounds.y = this.obj.y;
+
+	this.updateVisibility(this.bounds, new Phaser.Rectangle(0, 0, 0, 0));
 }
 
 Ladder.prototype.update = function () {
 }
 
 Ladder.prototype.postUpdate = function () {
+	if (portal.state['moved']) {
+		this.updateVisibility(this.bounds, portal.bounds);
+	}
+}
+
+Ladder.prototype.updateVisibility = function (objBounds, portalBounds) {
+	var intersectRect = Phaser.Rectangle.intersection(portalBounds, objBounds);
+	this.visibleArea.clear();
+	this.obj.body.enable = true;
+	if (this.layer === levelManager.bgLayer) {
+		if (!intersectRect.empty) {
+			if (Phaser.Rectangle.equals(intersectRect, objBounds)) {
+				this.visibleArea.drawRect(objBounds.left, objBounds.top, objBounds.width, objBounds.height);
+				this.obj.body.setSize(18, objBounds.height, 8, 0);
+			}
+			else {
+				if (intersectRect.top === objBounds.top) {
+					this.visibleArea.drawRect(objBounds.left, intersectRect.top, objBounds.width, intersectRect.height);
+					this.obj.body.setSize(18, intersectRect.height, 8, 0);
+				}
+				else {
+					this.visibleArea.drawRect(objBounds.left, intersectRect.top, objBounds.width, intersectRect.height);
+					this.obj.body.setSize(18, intersectRect.height, 8, objBounds.height - intersectRect.height);	
+				}
+			}
+		}
+		else {
+			this.visibleArea.drawRect(0, 0, 0, 0);
+			this.obj.body.enable = false;
+		}
+	}
+	else if (this.layer === levelManager.fgLayer) {
+		if (!intersectRect.empty) {
+			if (Phaser.Rectangle.equals(intersectRect, objBounds)) {
+				this.visibleArea.drawRect(0, 0, 0, 0);
+				this.obj.body.enable = false;
+			}
+			else {
+				if (intersectRect.top === objBounds.top) {
+					this.visibleArea.drawRect(intersectRect.left, intersectRect.bottom, objBounds.width, objBounds.height - intersectRect.height);
+					this.obj.body.setSize(18, objBounds.height - intersectRect.height, 8, intersectRect.height);
+				}
+				else {
+					this.visibleArea.drawRect(objBounds.left, objBounds.top, objBounds.width, objBounds.height - intersectRect.height);
+					this.obj.body.setSize(18, objBounds.height - intersectRect.height, 8, 0);	
+				}
+			}
+		}
+		else {
+			this.visibleArea.drawRect(objBounds.left, objBounds.top, objBounds.width, objBounds.height);
+			this.obj.body.setSize(18, objBounds.height, 8, 0);
+		}
+	}
+
+	this.obj.mask = this.visibleArea;
 }
 
 //-------------------------------------------------------------------------------------------------------------------
 
-function Platform(platformLength) {
+function Platform(platformLength, layer) {
 	this.obj = game.add.sprite(0, 0, null, null, platforms);
 	game.physics.enable(this.obj, Phaser.Physics.ARCADE);
-	this.lastPos = new Phaser.Point(0, 0);
-	this.bounds = new Phaser.Rectangle(0, 0, 0, 32);
+	this.visibleArea = game.add.graphics(0, 0);
+	this.bounds = new Phaser.Rectangle(0, 0, platformLength * TILE_WIDTH, TILE_HEIGHT);
+	this.moveBounds = new Phaser.Rectangle(0, 0, 0, TILE_HEIGHT);
+	this.layer = layer;
 	this.state = {};
 
 	for (var i = 0; i < platformLength; i++) {
@@ -429,32 +496,36 @@ function Platform(platformLength) {
 		this.obj.addChild(obj);
 	}
 
+	this.obj.body.setSize(platformLength * TILE_WIDTH, TILE_HEIGHT);
 	this.obj.body.allowGravity = false;
 	this.obj.body.immovable = true;
-	this.obj.body.setSize(platformLength * TILE_WIDTH, TILE_HEIGHT);
 }
 
 Platform.prototype.init = function (tx, ty, tw, startIdx, direction, speed) {
 	this.obj.x = (tx + startIdx) * TILE_WIDTH;
 	this.obj.y = ty * TILE_HEIGHT;
-	
-	this.bounds.x = tx * TILE_WIDTH;
-	this.bounds.y = ty * TILE_HEIGHT;
-	this.bounds.width = tw * TILE_WIDTH;
-	this.bounds.height = TILE_HEIGHT;
+
+	this.bounds.x = this.obj.x;
+	this.bounds.y = this.obj.y;
+
+	this.moveBounds.x = tx * TILE_WIDTH;
+	this.moveBounds.y = ty * TILE_HEIGHT;
+	this.moveBounds.width = tw * TILE_WIDTH;
 	
 	this.state['direction'] = direction;
 	this.state['speed'] = speed;
+
+	this.updateVisibility(this.bounds, new Phaser.Rectangle(0, 0, 0, 0));
 }
 
 Platform.prototype.update = function () {
 	if (this.state['direction'] === "left") {
-		if (this.obj.x <= this.bounds.left) {
+		if (this.obj.x <= this.moveBounds.left) {
 			this.state['direction'] = 'right'
 		}
 	}
 	else {
-		if (this.obj.x + this.obj.body.width >= this.bounds.right) {
+		if (this.obj.x + this.bounds.width >= this.moveBounds.right) {
 			this.state['direction'] = 'left';
 		}
 	}
@@ -468,50 +539,208 @@ Platform.prototype.update = function () {
 }
 
 Platform.prototype.postUpdate = function () {
+	this.bounds.x = this.obj.x;
+	this.bounds.y = this.obj.y;
+
+	this.updateVisibility(this.bounds, portal.bounds);
+}
+
+Platform.prototype.updateVisibility = function (objBounds, portalBounds) {
+	var intersectRect = Phaser.Rectangle.intersection(portalBounds, objBounds);
+	this.visibleArea.clear();
+	if (this.layer === levelManager.bgLayer) {
+		if (!intersectRect.empty) {
+			if (Phaser.Rectangle.equals(intersectRect, objBounds)) {
+				this.visibleArea.drawRect(objBounds.left, objBounds.top, objBounds.width, objBounds.height);
+				this.obj.body.setSize(objBounds.width, objBounds.height, 0, 0);
+			}
+			else {
+				if (intersectRect.left === objBounds.left) {
+					this.visibleArea.drawRect(intersectRect.left, objBounds.top, intersectRect.width, objBounds.height);
+					this.obj.body.setSize(intersectRect.width, objBounds.height, 0, 0);
+				}
+				else {
+					this.visibleArea.drawRect(intersectRect.left, objBounds.top, intersectRect.width, objBounds.height);
+					this.obj.body.setSize(intersectRect.width, objBounds.height, objBounds.width - intersectRect.width, 0);
+				}
+			}
+		}
+		else {
+			this.visibleArea.drawRect(0, 0, 0, 0);
+			this.obj.body.setSize(0, 0, -10000, -10000);
+			//this.obj.body.enable = false;
+		}
+	}
+	else if (this.layer === levelManager.fgLayer) {
+		if (!intersectRect.empty) {
+			if (Phaser.Rectangle.equals(intersectRect, objBounds)) {
+				this.visibleArea.drawRect(0, 0, 0, 0);
+				this.obj.body.setSize(0, 0, -10000, -10000);
+				//this.obj.body.enable = false;
+			}
+			else {
+				if (intersectRect.left === objBounds.left) {
+					this.visibleArea.drawRect(intersectRect.right, objBounds.top, objBounds.width - intersectRect.width, objBounds.height);
+					this.obj.body.setSize(objBounds.width - intersectRect.width, objBounds.height, intersectRect.width, 0);
+				}
+				else {
+					this.visibleArea.drawRect(objBounds.left, objBounds.top, objBounds.width - intersectRect.width, objBounds.height);
+					this.obj.body.setSize(objBounds.width - intersectRect.width, objBounds.height, 0, 0);
+				}
+			}
+		}
+		else {
+			this.visibleArea.drawRect(objBounds.left, objBounds.top, objBounds.width, objBounds.height);
+			this.obj.body.setSize(objBounds.width, objBounds.height, 0, 0);
+		}
+	}
+
+	this.obj.mask = this.visibleArea;
 }
 
 //-------------------------------------------------------------------------------------------------------------------
 
-function Spikes(tw) {
+function Spikes(tw, layer) {
 	this.obj = game.add.tileSprite(0, 0, tw * TILE_WIDTH, TILE_HEIGHT, 'spritesheet', 5, spikes);
-	this.lastPos = new Phaser.Point(0, 0);
+	this.visibleArea = game.add.graphics(0, 0);
+	this.bounds = new Phaser.Rectangle(0, 0, this.obj.width, this.obj.height);
+	this.layer = layer;
 	this.state = {};
 
 	game.physics.enable(this.obj, Phaser.Physics.ARCADE);
+	this.obj.body.setSize(this.obj.width, this.obj.height);
 	this.obj.body.allowGravity = false;
 }
 
 Spikes.prototype.init = function (tx, ty) {
 	this.obj.x = tx * TILE_WIDTH;
 	this.obj.y = ty * TILE_HEIGHT;
+	this.bounds.x = this.obj.x;
+	this.bounds.y = this.obj.y;
+
+	this.updateVisibility(this.bounds, new Phaser.Rectangle(0, 0, 0, 0));
 }
 
 Spikes.prototype.update = function () {
 }
 
 Spikes.prototype.postUpdate = function () {
+	if (portal.state['moved']) {
+		this.updateVisibility(this.bounds, portal.bounds);
+	}
+}
+
+Spikes.prototype.updateVisibility = function (objBounds, portalBounds) {
+	var intersectRect = Phaser.Rectangle.intersection(portalBounds, objBounds);
+	this.visibleArea.clear();
+	this.obj.body.enable = true;
+	if (this.layer === levelManager.bgLayer) {
+		if (!intersectRect.empty) {
+			if (Phaser.Rectangle.equals(intersectRect, objBounds)) {
+				this.visibleArea.drawRect(objBounds.left, objBounds.top, objBounds.width, objBounds.height);
+				this.obj.body.setSize(objBounds.width, objBounds.height, 0, 0);
+			}
+			else {
+				if (intersectRect.left === objBounds.left) {
+					this.visibleArea.drawRect(intersectRect.left, objBounds.top, intersectRect.width, objBounds.height);
+					this.obj.body.setSize(intersectRect.width, objBounds.height, 0, 0);
+				}
+				else {
+					this.visibleArea.drawRect(intersectRect.left, objBounds.top, intersectRect.width, objBounds.height);
+					this.obj.body.setSize(intersectRect.width, objBounds.height, objBounds.width - intersectRect.width, 0);
+				}
+			}
+		}
+		else {
+			this.visibleArea.drawRect(0, 0, 0, 0);
+			this.obj.body.enable = false;
+		}
+	}
+	else if (this.layer === levelManager.fgLayer) {
+		if (!intersectRect.empty) {
+			if (Phaser.Rectangle.equals(intersectRect, objBounds)) {
+				this.visibleArea.drawRect(0, 0, 0, 0);
+				this.obj.body.enable = false;
+			}
+			else {
+				if (intersectRect.left === objBounds.left) {
+					this.visibleArea.drawRect(intersectRect.right, objBounds.top, objBounds.width - intersectRect.width, objBounds.height);
+					this.obj.body.setSize(objBounds.width - intersectRect.width, objBounds.height, intersectRect.width, 0);
+				}
+				else {
+					this.visibleArea.drawRect(objBounds.left, objBounds.top, objBounds.width - intersectRect.width, objBounds.height);
+					this.obj.body.setSize(objBounds.width - intersectRect.width, objBounds.height, 0, 0);
+				}
+			}
+		}
+		else {
+			this.visibleArea.drawRect(objBounds.left, objBounds.top, objBounds.width, objBounds.height);
+			this.obj.body.setSize(objBounds.width, objBounds.height, 0, 0);
+		}
+	}
+
+	this.obj.mask = this.visibleArea;
 }
 
 //-------------------------------------------------------------------------------------------------------------------
 
-function Hook() {
+function Hook(layer) {
 	this.obj = game.add.sprite(0, 0, 'spritesheet', 6, hooks);
-	this.lastPos = new Phaser.Point(0, 0);
-	this.key = null;
+	this.visibleArea = game.add.graphics(0, 0);
+	this.bounds = new Phaser.Rectangle(0, 0, this.obj.width, this.obj.height);
+	this.layer = layer;
 	this.state = {};
+	
+	this.key = null;
 
 	game.physics.enable(this.obj, Phaser.Physics.ARCADE);
+	this.obj.body.setSize(this.obj.width, this.obj.height);
 	this.obj.body.allowGravity = false;
 }
 
 Hook.prototype.init = function (tx, ty, key) {
 	this.obj.x = tx * TILE_WIDTH;
 	this.obj.y = ty * TILE_HEIGHT;
+	this.bounds.x = this.obj.x;
+	this.bounds.y = this.obj.y;
 	this.key = key;
+
+	this.updateVisibility(this.bounds, new Phaser.Rectangle(0, 0, 0, 0));
 }
 
 Hook.prototype.update = function () {
 }
 
 Hook.prototype.postUpdate = function () {
+	if (portal.state['moved']) {
+		this.updateVisibility(this.bounds, portal.bounds);
+	}
+}
+
+Hook.prototype.updateVisibility = function (objBounds, portalBounds) {
+	var intersectRect = Phaser.Rectangle.intersection(portalBounds, objBounds);
+	this.visibleArea.clear();
+	this.obj.body.enable = true;
+	if (this.layer === levelManager.bgLayer) {
+		if (!intersectRect.empty) {
+			this.visibleArea.drawRect(objBounds.left, objBounds.top, objBounds.width, objBounds.height);
+			this.obj.body.setSize(objBounds.width, objBounds.height, 0, 0);
+		}
+		else {
+			this.visibleArea.drawRect(0, 0, 0, 0);
+			this.obj.body.enable = false;
+		}
+	}
+	else if (this.layer === levelManager.fgLayer) {
+		if (!intersectRect.empty) {
+			this.visibleArea.drawRect(0, 0, 0, 0);
+			this.obj.body.enable = false;
+		}
+		else {
+			this.visibleArea.drawRect(objBounds.left, objBounds.top, objBounds.width, objBounds.height);
+			this.obj.body.setSize(objBounds.width, objBounds.height, 0, 0);
+		}
+	}
+
+	this.obj.mask = this.visibleArea;
 }
