@@ -22,6 +22,7 @@ var levelManager;
 var vectorLayer;
 var player;
 var portal;
+var hookManager;
 var ladders;
 var platforms;
 var spikes;
@@ -29,6 +30,11 @@ var hooks;
 var visibleAreas;
 var fgBackground;
 var bgBackground;
+
+var currentLevel = 0;
+var levels = [
+	['level1', 'Level1-1', 'Level1-2', 'Objects1-1', 'Objects1-2'],
+];
 
 var events = {
 	PORTAL_MOVED: new Phaser.Signal()
@@ -54,6 +60,7 @@ function create() {
 	visibleAreas = game.add.group();
 	player = new Player();
 	portal = new Portal();
+	hookManager = new HookManager();
 
 	game.world.bringToTop(map);
 	game.world.bringToTop(ladders);
@@ -62,9 +69,9 @@ function create() {
 	game.world.bringToTop(hooks);
 	game.world.bringToTop(vectorLayer);
 	game.world.bringToTop(player.obj);
+	game.world.bringToTop(hookManager.obj);
 
-
-	startLevel1();
+	startLevel(0);
 }
 
 function update() {
@@ -72,14 +79,20 @@ function update() {
 	levelManager.updateObjects();
 	player.update();
 	portal.update();
+	hookManager.update();
 
 	//Post update
 	levelManager.postUpdateObjects();
 	player.postUpdate();
 	portal.postUpdate();
+	hookManager.postUpdate();
 
 	if (portal.state['moved']) {
 		putPortalTiles();
+	}
+
+	if (player.state['dead'] || game.input.keyboard.isDown(82)) {
+		restartCurrentLevel();
 	}
 }
 
@@ -95,8 +108,9 @@ function putPortalTiles() {
 
 	for (var i = 0; i < portal.showTiles.length; i++) {
 		bgLayerTile = map.getTile(portal.showTiles[i].x, portal.showTiles[i].y, levelManager.bgLayer);
-		if (map.getTile(portal.showTiles[i].x, portal.showTiles[i].y, levelManager.mainLayer).index !== bgLayerTile.index)
+		if (map.getTile(portal.showTiles[i].x, portal.showTiles[i].y, levelManager.mainLayer).index !== bgLayerTile.index) {
 			map.putTile(bgLayerTile, bgLayerTile.x, bgLayerTile.y, levelManager.mainLayer, false, true);
+		}
 	}
 }
 
@@ -114,7 +128,13 @@ function render() {
 	//game.debug.text(game.camera.x + ", " + game.camera.y, 12, 54);
 }
 
-function startLevel1() {
+function restartCurrentLevel() {
+	startLevel(currentLevel);
+}
+
+function startLevel(levelIdx) {
+	currentLevel = levelIdx;
+	
 	levelManager.unloadLevel();
 	ladders.removeAll(true);
 	platforms.removeAll(true);
@@ -125,9 +145,10 @@ function startLevel1() {
 	//Init
 	bgBackground.mask = vectorLayer;
 	bgBackground.opacity = 0.5;
-	levelManager.loadLevel('level1', 'Level1-1', 'Level1-2', 'Objects1-1', 'Objects1-2')
+	levelManager.loadLevel(levels[currentLevel][0], levels[currentLevel][1], levels[currentLevel][2], levels[currentLevel][3], levels[currentLevel][4]);
 	player.init();
 	portal.init(levelManager.bgLayer, levelManager.fgLayer);
+	hookManager.init();
 
 	//Physics
 	game.physics.arcade.gravity.y = 400;
@@ -165,6 +186,7 @@ LevelManager.prototype.loadLevel = function (asset, fgLayerName, bgLayerName, fg
 	map.paste(0, 0, fgLayerTiles, this.mainLayer);
 	map.setLayer(this.mainLayer);
 	map.setCollisionBetween(2, 3);
+	map.setCollisionBetween(12, 13);
 
 	this.fgObjects = this.loadObjects(map.objects[fgObjectsName], this.fgLayer);
 	this.bgObjects = this.loadObjects(map.objects[bgObjectsName], this.bgLayer);
@@ -188,8 +210,8 @@ LevelManager.prototype.loadObjects = function (json, layer) {
 				object.init(json[i].x / TILE_WIDTH, json[i].y / TILE_HEIGHT);
 				break;
 			case "hook":
-				object = new Hook(layer);
-				object.init(json[i].x / TILE_WIDTH, json[i].y / TILE_HEIGHT, json[i].properties.key);
+				object = new Hook(json[i].width / TILE_WIDTH, json[i].height / TILE_WIDTH, layer);
+				object.init(json[i].x / TILE_WIDTH, json[i].y / TILE_HEIGHT, parseInt(json[i].properties.hookX), parseInt(json[i].properties.hookY), json[i].properties.key);
 				break;
 		}
 
@@ -224,12 +246,13 @@ LevelManager.prototype.postUpdateObjects = function () {
 //-------------------------------------------------------------------------------------------------------------------
 
 function Portal () {
-	this.obj = new Phaser.Rectangle(0, 0, 320, 256);
+	this.obj = new Phaser.Rectangle(0, 0, 192, 128);
 	this.bounds = this.obj;
-	this.lastPos = new Phaser.Rectangle(0, 0, 320, 256);
+	this.lastPos = new Phaser.Rectangle(0, 0, 192, 128);
 	this.clickStartPos = new Phaser.Point(0, 0);
 	this.showLayer = null;
 	this.hideLayer = null;
+	this.lockKeys = 0;
 
 	this.showTiles = [];
 	this.hideTiles = [];
@@ -245,6 +268,7 @@ Portal.prototype.init = function (showLayer, hideLayer) {
 	this.hideLayer = hideLayer;
 	this.showTiles = [];
 	this.hideTiles = [];
+	this.lockKeys = 0;
 
 	this.state['moved'] = false;
 	this.state['dragging'] = false;
@@ -268,7 +292,13 @@ Portal.prototype.refreshTiles = function () {
 Portal.prototype.update = function () {
 	this.state['moved'] = false;
 
-	if (game.input.mousePointer.isDown) {
+	if (this.obj.x === 0 && this.obj.y === 0) {
+		this.obj.x = player.obj.x - 256 - ((player.obj.x - 256) % 32);
+		this.obj.y = player.obj.y - 256 - ((player.obj.y - 256) % 32);
+		this.state['moved'] = true;
+	}
+
+	/*if (game.input.mousePointer.isDown) {
 		if (!this.state['dragging']) {
 			this.state['dragging'] = true;
 			this.clickStartPos.setTo(game.input.worldX, game.input.worldY);
@@ -321,6 +351,76 @@ Portal.prototype.update = function () {
 	}
 	else if (game.input.mousePointer.isUp) {
 		this.state['dragging'] = false;
+	}*/
+
+	/*if (game.input.mousePointer.isDown) {
+		if (!this.state['dragging']) {
+			this.state['dragging'] = true;
+
+			var dx = game.input.worldX - this.lastPos.centerX;
+			var dy = game.input.worldY - this.lastPos.centerY;
+			
+			if (Math.abs(dx) >= 32) {
+				if (dx >= 32) {
+					this.obj.centerX = game.input.worldX - (game.input.worldX % 32);
+				}
+				else {
+					this.obj.centerX = game.input.worldX + 32 - (game.input.worldX % 32);
+				}
+				this.state['moved'] = true;
+			}
+			if (Math.abs(dy) >= 32) {
+				if (dy >= 32) {
+					this.obj.centerY = game.input.worldY - (game.input.worldY % 32);
+				}
+				else {
+					this.obj.centerY = game.input.worldY + 32 - (game.input.worldY % 32);
+				}
+				this.state['moved'] = true;
+			}
+		}
+	}
+	else if (game.input.mousePointer.isUp) {
+		this.state['dragging'] = false;
+	}*/
+
+	if (this.lockKeys === 0) {
+		if (game.input.keyboard.isDown(73)) {
+			if (this.obj.top > 0) {
+				this.obj.y -= 32;
+				this.state['moved'] = true;
+			}
+			this.lockKeys = 5;
+		}
+		else if (game.input.keyboard.isDown(74)) {
+			if (this.obj.left > 0) {
+				this.obj.x -= 32;
+				this.state['moved'] = true;
+			}
+			this.lockKeys = 5;
+		}
+		else if (game.input.keyboard.isDown(75)) {
+			if (this.obj.bottom < game.world.height - 1) {
+				this.obj.y += 32;
+				this.state['moved'] = true;
+			}
+			this.lockKeys = 5;
+		}
+		else if (game.input.keyboard.isDown(76)) {
+			if (this.obj.right < game.world.width - 1) {
+				this.obj.x += 32;
+				this.state['moved'] = true;
+			}
+			this.lockKeys = 5;
+		}
+	}
+	else {
+		if (!game.input.keyboard.isDown(73) && !game.input.keyboard.isDown(74) && !game.input.keyboard.isDown(75) && !game.input.keyboard.isDown(76)) {
+			this.lockKeys = 0;
+		}
+		else {
+			this.lockKeys--;
+		}
 	}
 
 	if (this.state['moved']) {
@@ -360,6 +460,7 @@ Player.prototype.init = function () {
 	this.lastPos.y = this.obj.y;
 	this.state['moved'] = false;
 	this.state['direction'] = 'right';
+	this.state['dead'] = false;
 
 	this.obj.body.setSize(24, 32);
 	this.obj.body.collideWithWorldBounds = true;
@@ -389,13 +490,17 @@ Player.prototype.update = function () {
 
 	if (game.input.keyboard.isDown(87)) {
 		if (this.obj.body.velocity.y === 0) {
-			this.obj.body.velocity.y = -200;
+			this.obj.body.velocity.y = -250;
 			this.state['moved'] = true;
 		}
 	}
 
 	if (!this.obj.body.onFloor()) {
 		this.state['moved'] = true;
+	}
+
+	if (this.obj.y >= game.world.height) {
+		this.state['dead'] = true;
 	}
 }
 
@@ -419,8 +524,22 @@ Player.prototype.handleInteraction = function () {
 		this.state['on_ladder'] = true;
 	}.bind(this));
 
-	game.physics.arcade.overlap(this.obj, hooks, function (player, hook) {
+	game.physics.arcade.collide(player.obj, spikes, function (player, spike) {
+		this.state['dead'] = true;
+	}.bind(this));
 
+	game.physics.arcade.overlap(this.obj, hooks, function (player, hook) {
+		if (game.input.keyboard.isDown(32)) {
+			if (hookManager.selectedHook) {
+				if (hookManager.startHook && hookManager.startHook !== hookManager.selectedHook && hookManager.startHook.key === hookManager.selectedHook.key) {
+					hookManager.endHook = hookManager.selectedHook;
+					hookManager.connect();
+				}
+				else {
+					hookManager.startHook = hookManager.selectedHook;
+				}
+			}
+		}
 	}.bind(this))
 }
 
@@ -731,26 +850,36 @@ Spikes.prototype.updateVisibility = function (objBounds, portalBounds) {
 
 //-------------------------------------------------------------------------------------------------------------------
 
-function Hook(layer) {
+function Hook(tw, th, layer) {
 	this.obj = game.add.sprite(0, 0, 'spritesheet', 6, hooks);
 	this.visibleArea = game.add.graphics(0, 0, visibleAreas);
 	this.bounds = new Phaser.Rectangle(0, 0, this.obj.width, this.obj.height);
+	this.linkedTilesBounds = new Phaser.Rectangle(0, 0, tw * TILE_WIDTH, th * TILE_HEIGHT);
 	this.layer = layer;
 	this.state = {};
 	
 	this.key = null;
+	this.connected = false;
+
+	this.keyText = game.add.text(11, 6, " ", { font: "16px Arial", fill: "#ffffff", align: "center" });
+	this.obj.addChild(this.keyText);
 
 	game.physics.enable(this.obj, Phaser.Physics.ARCADE);
 	this.obj.body.setSize(this.obj.width + 32, this.obj.height, -16, 0);
 	this.obj.body.allowGravity = false;
 }
 
-Hook.prototype.init = function (tx, ty, key) {
-	this.obj.x = tx * TILE_WIDTH;
-	this.obj.y = ty * TILE_HEIGHT;
+Hook.prototype.init = function (tx, ty, hookX, hookY, key) {
+	this.obj.x = (tx + hookX) * TILE_WIDTH;
+	this.obj.y = (ty + hookY) * TILE_HEIGHT;
 	this.bounds.x = this.obj.x;
 	this.bounds.y = this.obj.y;
+	this.linkedTilesBounds.x = tx * TILE_WIDTH;
+	this.linkedTilesBounds.y = ty * TILE_WIDTH;
 	this.key = key;
+	this.connected = false;
+
+	this.keyText.text = this.key.toString()
 
 	this.updateVisibility(this.bounds, new Phaser.Rectangle(0, 0, 0, 0));
 }
@@ -764,16 +893,24 @@ Hook.prototype.postUpdate = function () {
 	}
 	
 	if (player.state['moved']) {
-		if (game.physics.arcade.intersects(this.obj.body, player.obj.body)) {
-			this.obj.frame = 7;
-		}
-		else {
-			this.obj.frame = 6;
+		if (!this.connected) {
+			if (game.physics.arcade.intersects(this.obj.body, player.obj.body)) {
+				hookManager.selectedHook = this;
+				this.obj.frame = 7;
+			}
+			else {
+				if (this !== hookManager.startHook && this !== hookManager.endHook) {
+					this.obj.frame = 6;
+				}
+			}
 		}
 	}
 }
 
 Hook.prototype.updateVisibility = function (objBounds, portalBounds) {
+	if (this.connected)
+		return;
+
 	var intersectRect = Phaser.Rectangle.intersection(portalBounds, objBounds);
 	this.visibleArea.clear();
 	this.obj.body.enable = true;
@@ -799,4 +936,63 @@ Hook.prototype.updateVisibility = function (objBounds, portalBounds) {
 	}
 
 	this.obj.mask = this.visibleArea;
+}
+
+Hook.prototype.fetchLinkedTiles = function () {
+	var tiles = this.layer.getTiles(this.linkedTilesBounds.x, this.linkedTilesBounds.y, this.linkedTilesBounds.width, this.linkedTilesBounds.height - 32);
+	return tiles;
+}
+
+//-------------------------------------------------------------------------------------------------------------------
+
+function HookManager() {
+	this.obj = game.add.graphics(0, 0);
+	this.selectedHook = null;
+	this.startHook = null;
+	this.endHook = null;
+}
+
+HookManager.prototype.init = function () {
+	this.selectedHook = null;
+	this.startHook = null;
+	this.endHook = null;
+	this.obj.clear();
+}
+
+HookManager.prototype.update = function () {
+}
+
+HookManager.prototype.postUpdate = function () {
+}
+
+HookManager.prototype.connect = function () {
+	this.obj.clear();
+	this.obj.lineStyle(2, 0x00ffff, 1.0);
+	this.obj.moveTo(this.startHook.obj.body.center.x, this.startHook.obj.body.center.y + 2);
+	this.obj.lineTo(this.endHook.obj.body.center.x, this.endHook.obj.body.center.y + 2);
+
+	this.startHook.connected = true;
+	this.endHook.connected = true;
+
+	if (this.endHook.layer === levelManager.bgLayer) {
+		var tiles = this.endHook.fetchLinkedTiles();
+		for (var i = 0; i < tiles.length; i++) {
+			map.putTile(tiles[i].index + 10, tiles[i].x, tiles[i].y, levelManager.fgLayer);
+			map.putTile(tiles[i].index + 10, tiles[i].x, tiles[i].y, levelManager.mainLayer);
+			map.getTile(tiles[i].x, tiles[i].y, levelManager.bgLayer).index += 10;
+		}
+
+		tiles = this.startHook.fetchLinkedTiles();
+		for (var i = 0; i < tiles.length; i++) {
+			map.putTile(tiles[i].index + 10, tiles[i].x, tiles[i].y, levelManager.bgLayer);
+			map.putTile(tiles[i].index + 10, tiles[i].x, tiles[i].y, levelManager.mainLayer);
+			map.getTile(tiles[i].x, tiles[i].y, levelManager.fgLayer).index += 10;
+		}
+		
+		portal.refreshTiles();
+		putPortalTiles();
+	}
+
+	this.startHook = null;
+	this.endHook = null;
 }
